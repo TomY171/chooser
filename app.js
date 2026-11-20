@@ -752,7 +752,6 @@
     audio.pick();
     if (DEBUG) rec.spot = stepNow() + 1;
     advanceSpot();
-    bumpCount();
     if (DEBUG) {
       history.push(rec);
       if (history.length > 1000) history.shift();
@@ -1264,19 +1263,10 @@
   };
   let menuOpen = false;
 
-  // Idle texts: "place at least N fingers" in the middle, and how many picks were made.
-  const COUNT_KEY = 'chooser.count.v1';
-  let pickCount = 0;
-  try { pickCount = Math.max(0, parseInt(localStorage.getItem(COUNT_KEY), 10) || 0); } catch (_) { /* ignore */ }
+  // Idle text: "place at least N fingers" in the middle.
   function syncIdleTexts() {
     const need = neededFingers();
     $('hint').textContent = need === 1 ? 'הניחו לפחות אצבע אחת על המסך' : 'הניחו לפחות ' + need + ' אצבעות על המסך';
-    $('count').textContent = 'עשית ' + pickCount + " Chooser's";
-  }
-  function bumpCount() {
-    pickCount++;
-    try { localStorage.setItem(COUNT_KEY, String(pickCount)); } catch (_) { /* ignore */ }
-    syncIdleTexts();
   }
 
   function syncModeUI() {

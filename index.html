@@ -154,19 +154,14 @@
   }
   #help-btn:active { transform: scale(.92); }
   body.playing #help-btn { transform: scale(0); transition: transform .08s ease-in; pointer-events: none; }
-  /* Idle texts like the original: the finger minimum in the middle, the pick count at the bottom. */
+  /* Idle text like the original: the finger minimum in the middle. */
   #hint {
     position: fixed; z-index: 4; left: 50%; top: 50%; transform: translate(-50%, -50%);
     padding: 13px 20px; border-radius: 9px; background: #181818; color: #e6e6e6;
     font: 600 15px/1.25 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; white-space: nowrap;
     pointer-events: none; transition: opacity .17s linear;
   }
-  #count {
-    position: fixed; z-index: 4; left: 0; right: 0; bottom: 43px; text-align: center;
-    color: #bdbdbd; font: 400 15px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; letter-spacing: .3px;
-    pointer-events: none; transition: opacity .17s linear;
-  }
-  body.playing #hint, body.playing #count, body.secret #hint, body.secret #count { opacity: 0; }
+  body.playing #hint, body.secret #hint { opacity: 0; }
   #help-menu {
     position: fixed; inset: 0; z-index: 8;
     display: flex; align-items: center; justify-content: center; padding: 0 20px 6vh;
@@ -219,7 +214,6 @@
 <button id="mode-btn" type="button" dir="ltr" aria-label="מצב"><span id="mode-letter">ז</span><span id="mode-num">1</span></button>
 <button id="help-btn" type="button" aria-label="איך משחקים">?</button>
 <div id="hint" dir="rtl"></div>
-<div id="count" dir="rtl"></div>
 <div id="help-menu" aria-hidden="true">
   <div id="help-card" dir="rtl" lang="he">
     <h2>איך משחקים</h2>
