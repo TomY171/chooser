@@ -1408,6 +1408,8 @@
     if (DEBUG) { el.remove(); return; }
     audio.chime();
     const disc = el.querySelector('.disc');
+    // Starts black with the dots (matching iOS's launch image), then the yellow fades in around the circle.
+    setTimeout(() => el.classList.add('open'), 150);
     setTimeout(() => {
       audio.chime(false);
       audio.whoosh(); // the swell starts with the growth and cuts off just after the screen is black
@@ -1415,7 +1417,7 @@
       disc.style.transform = 'scale(' + (Math.hypot(window.innerWidth, window.innerHeight) / d * 1.05).toFixed(2) + ')';
       el.classList.add('go');
       setTimeout(() => el.remove(), 800);
-    }, 2200);
+    }, 2300);
   })();
 
   resize();
