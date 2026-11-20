@@ -752,6 +752,7 @@
     audio.pick();
     if (DEBUG) rec.spot = stepNow() + 1;
     advanceSpot();
+    bumpCount();
     if (DEBUG) {
       history.push(rec);
       if (history.length > 1000) history.shift();
@@ -1134,6 +1135,8 @@
     el.sound.checked = settings.sound;
     el.silent.checked = settings.silentPlay;
     el.solo.checked = settings.minFingers === 1;
+    document.body.classList.toggle('secret', settingsOpen); // hides the idle texts over the spots
+    syncIdleTexts();
   }
 
   function changed() { saveSettings(); syncSettingsUI(); kick(); }
@@ -1261,7 +1264,23 @@
   };
   let menuOpen = false;
 
+  // Idle texts: "place at least N fingers" in the middle, and how many picks were made.
+  const COUNT_KEY = 'chooser.count.v1';
+  let pickCount = 0;
+  try { pickCount = Math.max(0, parseInt(localStorage.getItem(COUNT_KEY), 10) || 0); } catch (_) { /* ignore */ }
+  function syncIdleTexts() {
+    const need = neededFingers();
+    $('hint').textContent = need === 1 ? 'הניחו לפחות אצבע אחת על המסך' : 'הניחו לפחות ' + need + ' אצבעות על המסך';
+    $('count').textContent = 'עשית ' + pickCount + " Chooser's";
+  }
+  function bumpCount() {
+    pickCount++;
+    try { localStorage.setItem(COUNT_KEY, String(pickCount)); } catch (_) { /* ignore */ }
+    syncIdleTexts();
+  }
+
   function syncModeUI() {
+    syncIdleTexts();
     const g = settings.mode === 'groups';
     const n = g ? settings.groups : settings.winners;
     document.documentElement.dataset.mode = settings.mode; // theme colour: green winners / orange groups
