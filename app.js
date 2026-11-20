@@ -288,6 +288,19 @@
       var fade = 0.08, Tc = D - fade, k = 0.766 / Tc, ta = 0.012;
       function L1(t) { var u = t * k - 0.4; return -17.21 + 31.4 * u - 25.3 * u * u; }
       function L2(t) { var u = t * k - 0.4; return -31.51 + 46.7 * u - 10.2 * u * u; }
+      swell(ctx, out, t0, D, Tc, ta, L1, L2);
+    }
+
+    /* ---------------- opening whoosh: the same A4 swell while the dark circle grows ---------------- */
+    // Measured from the opening: 440 Hz rises ~-53 -> -3.5 dBFS and its 2nd partial ~-75 -> -12 over
+    // 1.10 s, then a 0.08 s fade (quadratic fits in dB, s = t - 0.565).
+    function sfxWhoosh(ctx, out, when) {
+      function L1(t) { var s = t - 0.565; return -19 + 45 * s - 30 * s * s; }
+      function L2(t) { var s = t - 0.565; return -40 + 55 * s - 14 * s * s; }
+      swell(ctx, out, T(ctx, when), 1.18, 1.12, 0.012, L1, L2);
+    }
+
+    function swell(ctx, out, t0, D, Tc, ta, L1, L2) {
       var w2 = wave(ctx, 'cd', [0, 0, 1, dbToAmp(-28.5), dbToAmp(-29.2)]);
       var o1 = ctx.createOscillator(), o2 = ctx.createOscillator();
       var g1 = ctx.createGain(), g2 = ctx.createGain();
@@ -407,7 +420,7 @@
       cleanup(o, [o, g]);
     }
 
-    return { sfxFingerDown: sfxFingerDown, sfxCountdown: sfxCountdown, sfxPick: sfxPick, sfxPop: sfxPop, fingerFreq: fingerFreq, warm: warm };
+    return { sfxFingerDown: sfxFingerDown, sfxCountdown: sfxCountdown, sfxWhoosh: sfxWhoosh, sfxPick: sfxPick, sfxPop: sfxPop, fingerFreq: fingerFreq, warm: warm };
   })();
   /* SFX-END */
 
@@ -501,6 +514,7 @@
       // iPhone web apps can't make sound before the first tap: if it isn't unlocked yet, the chime
       // waits and plays on a tap during the opening screen. chime(false) cancels the wait.
       chime(on) { note('chime'); if (on === false) chimeWanted = false; else if (ready()) playChime(); else chimeWanted = true; },
+      whoosh() { note('whoosh'); if (ready()) try { SFX.sfxWhoosh(ac, master, at()); } catch (_) { /* ignore */ } },
       countdown() {
         note('countdown');
         if (!ready()) return null;
@@ -1329,13 +1343,14 @@
     if (!el) return;
     if (DEBUG) { el.remove(); return; }
     audio.chime();
-    setTimeout(() => audio.chime(false), 2750);
     const disc = el.querySelector('.disc');
     setTimeout(() => {
+      audio.chime(false);
+      audio.whoosh(); // the swell starts with the growth and cuts off just after the screen is black
       const d = disc.getBoundingClientRect().width || 1;
       disc.style.transform = 'scale(' + (Math.hypot(window.innerWidth, window.innerHeight) / d * 1.05).toFixed(2) + ')';
       el.classList.add('go');
-      setTimeout(() => el.remove(), 550);
+      setTimeout(() => el.remove(), 800);
     }, 2200);
   })();
 
