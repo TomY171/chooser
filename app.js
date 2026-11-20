@@ -45,7 +45,8 @@
   const mixRgb = (a, b, k) => 'rgb(' + a.map((v, i) => Math.round(v + (b[i] - v) * k)).join(',') + ')';
   const MAX_COUNT = 4;       // up to 4 winners or 4 groups (an iPhone tracks at most 5 fingers)
   const T_GROUP_TINT = 0.25; // groups: white -> team colour
-  const T_REPLAY_HINT = 3.6; // "tap to play again" appears this long after a multi-finger result
+  const T_REPLAY_HINT = 3.6; // "tap to play again" appears this long after the pick at the latest
+  const T_MIN_RESULT = 1.0;  // a new tap can end the result only this long after the pick
   const R_MEAN = 36.3;       // fill radius pulses 34.0 .. 38.7
   const R_AMP = 2.35;
   const PULSE_PERIOD = 1.0;  // s; odd colours pulse in anti-phase
@@ -63,7 +64,7 @@
     loserShrink: 0.32,  // losers shrink away
     floodDelay: 0.75,   // pick -> winner colour floods in
     flood: 0.22,
-    liftShrink: 0.25,   // winner lifted -> shrinks
+    liftShrink: 0.25,   // round ended -> the winner's dot shrinks
     expand: 0.25,       // dark circle grows back over the screen
     removeShrink: 0.25, // a finger lifted before the pick
     unsweep: 0.2,       // progress ring retracts when the countdown is cancelled
@@ -528,6 +529,7 @@
       progAngle: Math.random() * TAU,
       unsweepFrom: 0, unsweepAt: -1,
       team: -1, teamColor: -1, teamAt: 0,
+      lifted: false, liftedAt: 0, // after the pick: finger up, dot stays
     });
     lastChange = t;
     audio.fingerDown(act.length); // pitch rises with each finger (A3, D4, E4, ...)
@@ -542,8 +544,9 @@
     const f = fingers.get(id);
     if (!f || f.gone) return;
     if (phase === 'picked') {
-      if (roundKind === 'flood' && f === winner) startEnding(t);
-      else markGone(f, t, T.removeShrink);
+      // The result stays on screen after the finger lifts, so everyone can see who was picked.
+      // While a chosen finger stays down its dot keeps following it. A new tap ends the round.
+      if (!f.lifted) { f.lifted = true; f.liftedAt = t; }
       return;
     }
     if (phase === 'ending') { markGone(f, t, T.removeShrink); return; }
@@ -552,9 +555,11 @@
     if (phase === 'sweep') cancelSweep(t);
   }
 
-  // Multi-finger result ("tap to play again"): a new tap clears the result.
-  function endResult(t) {
-    for (const f of active()) markGone(f, t, T.removeShrink);
+  // "Tap to play again": a new tap clears the result. One winner: its dot shrinks and the dark
+  // circle grows back over the screen. Several winners / groups: all dots shrink away.
+  function endRound(t) {
+    if (roundKind === 'flood') startEnding(t);
+    else for (const f of active()) markGone(f, t, T.removeShrink);
   }
 
   function sweepProgress(t) { return clamp01((t - sweepStart) / T.sweep); }
@@ -699,7 +704,7 @@
     } else if (phase === 'sweep') {
       if (t - sweepStart >= T.sweep + T.pickDelay) pick(t);
     } else if (phase === 'picked') {
-      if (roundKind !== 'flood' && fingers.size === 0) resetRound(t); // everyone lifted
+      if (roundKind !== 'flood' && fingers.size === 0) resetRound(t); // all dots cleared by a tap
     } else if (phase === 'ending') {
       if (t - endStart >= T.liftShrink + (endFlooded ? T.expand : 0)) resetRound(t);
     }
@@ -755,23 +760,30 @@
     ctx.fill();
   }
 
-  // Small "tap to play again" under the lowest finger, a few seconds into a multi-finger result.
+  // Small "tap to play again" under the lowest chosen dot: as soon as every chosen finger has
+  // lifted, or T_REPLAY_HINT after the pick at the latest.
   function drawReplayHint(t) {
-    if (phase !== 'picked' || roundKind === 'flood') return;
-    const k = clamp01((t - pickTime - T_REPLAY_HINT) / 0.3);
+    if (phase !== 'picked') return;
+    const shown = active();
+    if (!shown.length) return;
+    let start = pickTime + T_REPLAY_HINT;
+    if (shown.every((f) => f.lifted)) start = Math.min(start, Math.max(...shown.map((f) => f.liftedAt)));
+    start = Math.max(start, pickTime + T_MIN_RESULT, roundKind === 'flood' ? floodAt + T.flood : 0);
+    const k = clamp01((t - start) / 0.3);
     if (k <= 0) return;
     let low = null;
-    for (const f of active()) if (!low || f.y > low.y) low = f;
-    if (!low) return;
+    for (const f of shown) if (!low || f.y > low.y) low = f;
     ctx.save();
-    ctx.globalAlpha = 0.75 * k;
-    ctx.fillStyle = '#c8c8c8';
+    ctx.globalAlpha = 0.8 * k;
     ctx.font = '12px -apple-system, system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
     try { ctx.direction = 'rtl'; } catch (_) { /* older engines */ }
-    const y = Math.min(H - 20, low.y + R_MEAN * RING_OUT + 10);
-    ctx.fillText('הקש כדי לשחק שוב', clamp(low.x, 60, W - 60), y);
+    const x = clamp(low.x, 60, W - 60), y = Math.min(H - 20, low.y + R_MEAN * RING_OUT + 10);
+    ctx.lineWidth = 3; ctx.lineJoin = 'round'; ctx.strokeStyle = BG; // readable on any flood colour
+    ctx.strokeText('הקש כדי לשחק שוב', x, y);
+    ctx.fillStyle = '#c8c8c8';
+    ctx.fillText('הקש כדי לשחק שוב', x, y);
     ctx.restore();
   }
 
@@ -879,7 +891,7 @@
     // glass is lifted, so a "ghost" finger can never win.
     const live = new Set();
     for (let i = 0; i < list.length; i++) live.add(list[i].identifier);
-    for (const f of [...fingers.values()]) if (!f.gone && !live.has(f.id)) liftFinger(f.id, t);
+    for (const f of [...fingers.values()]) if (!f.gone && !f.lifted && !live.has(f.id)) liftFinger(f.id, t);
     for (const id of [...ignored]) if (!live.has(id)) ignored.delete(id);
     for (const id of [...tapStarts.keys()]) if (!live.has(id)) tapStarts.delete(id);
   }
@@ -893,7 +905,7 @@
       cornerTapStart(tc);
       const id = tc.identifier;
       if (phase === 'picked' || phase === 'ending' || ignored.has(id)) {
-        if (phase === 'picked' && roundKind !== 'flood' && !ignored.has(id)) endResult(t); // "tap to play again"
+        if (phase === 'picked' && !ignored.has(id) && t - pickTime >= T_MIN_RESULT) endRound(t); // "tap to play again"
         ignored.add(id);
         continue;
       }
@@ -908,7 +920,7 @@
     if (settingsOpen) { settingsTouch(e, 'move'); return; }
     for (const tc of e.changedTouches) {
       const f = fingers.get(tc.identifier);
-      if (f && !f.gone) { f.x = tc.clientX; f.y = tc.clientY; }
+      if (f && !f.gone && !f.lifted) { f.x = tc.clientX; f.y = tc.clientY; }
     }
     syncWithTouchList(e.touches, clock());
     kick();
@@ -1179,7 +1191,7 @@
     window.__chooser = {
       get phase() { return phase; },
       get winner() { return winner && { id: winner.id, x: winner.x, y: winner.y, color: winner.color }; },
-      get fingers() { return [...fingers.values()].map((f) => ({ id: f.id, x: f.x, y: f.y, color: f.color, gone: f.gone, unsweepFrom: f.unsweepFrom })); },
+      get fingers() { return [...fingers.values()].map((f) => ({ id: f.id, x: f.x, y: f.y, color: f.color, gone: f.gone, lifted: f.lifted, unsweepFrom: f.unsweepFrom })); },
       get ignored() { return [...ignored]; },
       get settings() { return JSON.parse(JSON.stringify(settings)); },
       set settings(s) { settings = sanitize(s); saveSettings(); syncModeUI(); kick(); },
