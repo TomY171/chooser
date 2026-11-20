@@ -27,7 +27,7 @@
   // Look & timing (measured from the reference recording; sizes in CSS px).
   // ---------------------------------------------------------------------------
   const TAU = Math.PI * 2;
-  const BG = '#0f0f0f';
+  const BG = '#000000'; // true black: OLED pixels off
   // The seven finger colours of the reference app (fill / base ring / progress ring), sampled
   // from the recordings. Each new finger gets a random colour that is not already on screen.
   const PALETTE = [
@@ -45,7 +45,7 @@
   const mixRgb = (a, b, k) => 'rgb(' + a.map((v, i) => Math.round(v + (b[i] - v) * k)).join(',') + ')';
   const MAX_COUNT = 4;       // up to 4 winners or 4 groups (an iPhone tracks at most 5 fingers)
   const T_GROUP_TINT = 0.25; // groups: white -> team colour
-  const T_REPLAY_HINT = 3.6; // "tap to play again" appears this long after the pick at the latest
+  const T_AUTO_RETURN = 3.0; // after the chosen fingers lift, the result stays this long, then black
   const T_MIN_RESULT = 1.0;  // a new tap can end the result only this long after the pick
   const R_MEAN = 36.3;       // fill radius pulses 34.0 .. 38.7
   const R_AMP = 2.35;
@@ -88,7 +88,7 @@
     hint: false,                  // faint dot at the win spot
     showSpots: false,             // draw both spots while playing (testing)
     sound: true,
-    silentPlay: true,             // play even when the phone is on silent (pauses music apps)
+    silentPlay: false,            // true = also play on silent, but that pauses music apps
     minFingers: 2,
     dock: 'top',
   };
@@ -112,7 +112,8 @@
       hint: typeof s.hint === 'boolean' ? s.hint : DEFAULTS.hint,
       showSpots: typeof s.showSpots === 'boolean' ? s.showSpots : DEFAULTS.showSpots,
       sound: typeof s.sound === 'boolean' ? s.sound : DEFAULTS.sound,
-      silentPlay: typeof s.silentPlay === 'boolean' ? s.silentPlay : DEFAULTS.silentPlay,
+      silentPlay: s.v === 2 && typeof s.silentPlay === 'boolean' ? s.silentPlay : DEFAULTS.silentPlay,
+      v: 2,
       minFingers: s.minFingers === 1 ? 1 : 2,
       dock: s.dock === 'bottom' ? 'bottom' : 'top',
     };
@@ -383,16 +384,39 @@
       noiseBuffer(ctx); metalBuffer(ctx);
     }
 
-    return { sfxFingerDown: sfxFingerDown, sfxCountdown: sfxCountdown, sfxPick: sfxPick, fingerFreq: fingerFreq, warm: warm };
+    /* ---------------- pop: a finger lifts before the pick ---------------- */
+    // Measured from the reference app: a pure tone that glides 525 -> 1146 Hz while it swells to its
+    // peak at 18.5 ms and fades out by 44 ms (identical every time). [ms, Hz] and [ms, level].
+    var POP_F = [[0, 525], [5.9, 524], [7.8, 595], [9.5, 671], [11, 714], [12.4, 763], [13.7, 803], [15, 838],
+      [16.2, 878], [18.4, 926], [20.5, 972], [22.6, 995], [24.6, 1021], [26.5, 1040], [28.4, 1054], [30.3, 1071],
+      [32.2, 1084], [34, 1096], [36.8, 1105], [38.6, 1113], [42, 1146]];
+    var POP_A = [[0, 0], [1, 0.12], [4, 0.13], [9.5, 0.32], [13.7, 0.667], [16.2, 0.907], [18.5, 1], [22.6, 0.907],
+      [27.5, 0.707], [31.3, 0.52], [35, 0.347], [38.6, 0.173], [40.4, 0.107], [42, 0.053], [44.5, 0]];
+    var POP_PEAK = 0.75; // same peak as the recording (played on its own bus, no compressor)
+    function sfxPop(ctx, out, when) {
+      var t0 = T(ctx, when);
+      var o = ctx.createOscillator(), g = ctx.createGain(), F = o.frequency, G = g.gain, i;
+      o.type = 'sine';
+      F.setValueAtTime(POP_F[0][1], t0);
+      for (i = 1; i < POP_F.length; i++) F.linearRampToValueAtTime(POP_F[i][1], t0 + POP_F[i][0] / 1000);
+      G.setValueAtTime(0, t0);
+      for (i = 1; i < POP_A.length; i++) G.linearRampToValueAtTime(POP_PEAK * POP_A[i][1], t0 + POP_A[i][0] / 1000);
+      o.connect(g); g.connect(out);
+      o.start(t0); o.stop(t0 + 0.05);
+      cleanup(o, [o, g]);
+    }
+
+    return { sfxFingerDown: sfxFingerDown, sfxCountdown: sfxCountdown, sfxPick: sfxPick, sfxPop: sfxPop, fingerFreq: fingerFreq, warm: warm };
   })();
   /* SFX-END */
 
+  const COLOR_TONE = [0, 1, 2, 2, 1, 3, 3]; // palette index -> tone (A3, D4, E4, A4)
   const COUNTDOWN_DELAY = 0.22; // the countdown tone starts ~0.22 s into the ring sweep
   const COUNTDOWN_LEN = 0.846;  // and lasts 0.846 s (both measured)
 
   const audio = (() => {
     const AC = window.AudioContext || window.webkitAudioContext;
-    let ac = null, master = null, recovering = false, warmed = null, everRan = false;
+    let ac = null, master = null, direct = null, recovering = false, warmed = null, everRan = false;
 
     function applySession() {
       // 'playback' = also plays when the phone is on silent (pauses music apps); 'ambient' = obeys the switch.
@@ -418,6 +442,9 @@
       master.gain.value = 0.77;
       master.connect(comp);
       comp.connect(ac.destination);
+      direct = ac.createGain(); // short sounds that never stack (the pop) skip the compressor
+      direct.gain.value = 1;
+      direct.connect(ac.destination);
       ac.onstatechange = () => {
         if (ac && ac.state === 'running') everRan = true;
         warm();
@@ -450,17 +477,24 @@
         }, 700);
       }
     }
+    const sfxLog = []; // debug: which sounds were requested
+    const note = (name) => { if (DEBUG) { sfxLog.push(name); if (sfxLog.length > 500) sfxLog.shift(); } };
     const ready = () => !MUTED && settings.sound && ac && ac.state === 'running';
     const at = (d) => ac.currentTime + 0.005 + (d || 0);
     return {
       unlock,
       applySession,
+      sfxLog,
       suspend() { if (ac && ac.state === 'running') ac.suspend().catch(() => {}); },
       resume() { if (settings.sound && ac && ac.state !== 'closed' && ac.state !== 'running') ac.resume().catch(() => {}); },
       running: () => !!ac && ac.state === 'running',
       everRan: () => everRan,
-      fingerDown(i) { if (ready()) try { SFX.sfxFingerDown(ac, master, i, at()); } catch (_) { /* ignore */ } },
+      // The reference app's tone depends on the finger's colour: white A3, orange/teal D4,
+      // yellow E4, pink A4 (measured); green E4 and red A4 follow the same pattern.
+      fingerDown(color) { note('tone' + (COLOR_TONE[color] || 0)); if (ready()) try { SFX.sfxFingerDown(ac, master, COLOR_TONE[color] || 0, at()); } catch (_) { /* ignore */ } },
+      pop() { note('pop'); if (ready()) try { SFX.sfxPop(ac, direct, at()); } catch (_) { /* ignore */ } },
       countdown() {
+        note('countdown');
         if (!ready()) return null;
         try {
           const bus = ac.createGain();
@@ -479,7 +513,7 @@
           };
         } catch (_) { return null; }
       },
-      pick() { if (ready()) try { SFX.sfxPick(ac, master, at()); } catch (_) { /* ignore */ } },
+      pick() { note('pick'); if (ready()) try { SFX.sfxPick(ac, master, at()); } catch (_) { /* ignore */ } },
     };
   })();
 
@@ -540,7 +574,7 @@
       lifted: false, liftedAt: 0, // after the pick: finger up, dot stays
     });
     lastChange = t;
-    audio.fingerDown(act.length); // pitch rises with each finger (A3, D4, E4, ...)
+    return fingers.get(id);
   }
 
   function markGone(f, t, dur) {
@@ -550,17 +584,18 @@
 
   function liftFinger(id, t) {
     const f = fingers.get(id);
-    if (!f || f.gone) return;
+    if (!f || f.gone) return false;
     if (phase === 'picked') {
       // The result stays on screen after the finger lifts, so everyone can see who was picked.
       // While a chosen finger stays down its dot keeps following it. A new tap ends the round.
       if (!f.lifted) { f.lifted = true; f.liftedAt = t; }
-      return;
+      return false;
     }
-    if (phase === 'ending') { markGone(f, t, T.removeShrink); return; }
+    if (phase === 'ending') { markGone(f, t, T.removeShrink); return false; }
     markGone(f, t, T.removeShrink);
     lastChange = t;
     if (phase === 'sweep') cancelSweep(t);
+    return true;
   }
 
   // "Tap to play again": a new tap clears the result. One winner: its dot shrinks and the dark
@@ -705,7 +740,13 @@
   // When a round ends, everyone still touching the screen plays in the next round, so a finger
   // that stays on the win spot (or a tap-to-play-again finger that stays down) is not left out.
   function joinHeldTouches(t) {
-    for (const [id, pos] of onGlass) if (!ignored.has(id) && !fingers.has(id)) addFinger(id, pos.x, pos.y, t);
+    let first = null;
+    for (const [id, pos] of onGlass) {
+      if (ignored.has(id) || fingers.has(id)) continue;
+      const f = addFinger(id, pos.x, pos.y, t);
+      if (!first) first = f;
+    }
+    if (first) audio.fingerDown(first.color);
   }
 
   function farCorner(x, y) {
@@ -720,10 +761,19 @@
     } else if (phase === 'sweep') {
       if (t - sweepStart >= T.sweep + T.pickDelay) pick(t);
     } else if (phase === 'picked') {
-      if (roundKind !== 'flood' && fingers.size === 0) { resetRound(t); joinHeldTouches(t); } // dots cleared by a tap
-      else if (t - pickTime >= T_MIN_RESULT) {
+      if (roundKind !== 'flood' && fingers.size === 0) { resetRound(t); joinHeldTouches(t); } // dots cleared
+      else {
+        // Everyone chosen has lifted: keep the result on screen for a moment, then back to black.
+        const shown = active();
+        if (shown.length && shown.every((f) => f.lifted)) {
+          let since = roundKind === 'flood' ? floodAt + T.flood : pickTime;
+          for (const f of shown) since = Math.max(since, f.liftedAt);
+          if (t - since >= T_AUTO_RETURN) endRound(t);
+        }
         // A finger put down during the first second of the result and still held ends it too.
-        for (const id of lateTouches) if (onGlass.has(id)) { endRound(t); break; }
+        if (phase === 'picked' && t - pickTime >= T_MIN_RESULT) {
+          for (const id of lateTouches) if (onGlass.has(id)) { endRound(t); break; }
+        }
       }
     } else if (phase === 'ending') {
       if (t - endStart >= T.liftShrink + (endFlooded ? T.expand : 0)) { resetRound(t); joinHeldTouches(t); }
@@ -780,33 +830,6 @@
     ctx.fill();
   }
 
-  // Small "tap to play again" under the lowest chosen dot: as soon as every chosen finger has
-  // lifted, or T_REPLAY_HINT after the pick at the latest.
-  function drawReplayHint(t) {
-    if (phase !== 'picked') return;
-    const shown = active();
-    if (!shown.length) return;
-    let start = pickTime + T_REPLAY_HINT;
-    if (shown.every((f) => f.lifted)) start = Math.min(start, Math.max(...shown.map((f) => f.liftedAt)));
-    start = Math.max(start, pickTime + T_MIN_RESULT, roundKind === 'flood' ? floodAt + T.flood : 0);
-    const k = clamp01((t - start) / 0.3);
-    if (k <= 0) return;
-    let low = null;
-    for (const f of shown) if (!low || f.y > low.y) low = f;
-    ctx.save();
-    ctx.globalAlpha = 0.8 * k;
-    ctx.font = '12px -apple-system, system-ui, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    try { ctx.direction = 'rtl'; } catch (_) { /* older engines */ }
-    const x = clamp(low.x, 60, W - 60), y = Math.min(H - 20, low.y + R_MEAN * RING_OUT + 10);
-    ctx.lineWidth = 3; ctx.lineJoin = 'round'; ctx.strokeStyle = BG; // readable on any flood colour
-    ctx.strokeText('הקש כדי לשחק שוב', x, y);
-    ctx.fillStyle = '#c8c8c8';
-    ctx.fillText('הקש כדי לשחק שוב', x, y);
-    ctx.restore();
-  }
-
   function drawSpots() {
     const R = settings.radius;
     const spots = [['win', '#30d158', '✓'], ['lose', '#ff453a', '✗']];
@@ -833,29 +856,9 @@
     ctx.restore();
   }
 
-  // iPhones only allow sound after a quick tap (holding a finger does not count), so until then a
-  // small grey "muted speaker" sits in the middle of the idle screen; any quick tap removes it.
-  function drawSpeaker() {
-    const x = W / 2, y = H / 2;
-    ctx.save();
-    ctx.fillStyle = '#3c3c3c';
-    ctx.strokeStyle = '#3c3c3c';
-    ctx.lineWidth = 2.5;
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(x - 16, y - 5); ctx.lineTo(x - 10, y - 5); ctx.lineTo(x - 2, y - 12);
-    ctx.lineTo(x - 2, y + 12); ctx.lineTo(x - 10, y + 5); ctx.lineTo(x - 16, y + 5);
-    ctx.closePath(); ctx.fill();
-    ctx.beginPath();
-    ctx.moveTo(x + 5, y - 5); ctx.lineTo(x + 14, y + 4);
-    ctx.moveTo(x + 14, y - 5); ctx.lineTo(x + 5, y + 4);
-    ctx.stroke();
-    ctx.restore();
-  }
-
   function drawHintDot() {
     const p = spotPx('win');
-    ctx.fillStyle = '#1b1b1b';
+    ctx.fillStyle = '#121212';
     ctx.beginPath(); ctx.arc(p.x, p.y, 2.5, 0, TAU); ctx.fill();
   }
 
@@ -873,7 +876,6 @@
     } else if (settings.hint && settings.cheat && phase !== 'picked' && phase !== 'ending') {
       drawHintDot();
     }
-    if (!settingsOpen && settings.sound && phase === 'gather' && fingers.size === 0 && !audio.running()) drawSpeaker();
     if (settingsOpen && dragTouch) {
       ctx.save();
       ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 1;
@@ -884,7 +886,6 @@
       ctx.restore();
     }
     for (const f of fingers.values()) drawFinger(f, t);
-    drawReplayHint(t);
   }
 
   let rafId = 0;
@@ -948,6 +949,7 @@
     if (settingsOpen) { trackGlass(e.touches); settingsTouch(e, 'start'); return; }
     const t = clock();
     syncWithTouchList(e.touches, t);
+    let toned = false;
     for (const tc of e.changedTouches) {
       cornerTapStart(tc);
       const id = tc.identifier;
@@ -959,7 +961,8 @@
         continue;
       }
       if (fingers.has(id)) fingers.delete(id); // stale entry with a reused id
-      addFinger(id, tc.clientX, tc.clientY, t);
+      const f = addFinger(id, tc.clientX, tc.clientY, t);
+      if (f && !toned) { toned = true; audio.fingerDown(f.color); } // one tone per touch, like the original
     }
     kick();
   }
@@ -980,12 +983,14 @@
     if (e.type === 'touchend') { audio.unlock(); requestWakeLock(); } // a quick tap unlocks sound
     if (settingsOpen) { trackGlass(e.touches); settingsTouch(e, 'end'); return; }
     const t = clock();
+    let popped = false;
     for (const tc of e.changedTouches) {
       if (e.type === 'touchend') cornerTapEnd(tc); else tapStarts.delete(tc.identifier);
       ignored.delete(tc.identifier);
       lateTouches.delete(tc.identifier);
-      liftFinger(tc.identifier, t);
+      if (liftFinger(tc.identifier, t)) popped = true;
     }
+    if (popped) audio.pop(); // one pop per lift, even if several fingers lift together
     syncWithTouchList(e.touches, t);
     if (openRequested) { openRequested = false; openSettings(); }
     kick();
@@ -1054,6 +1059,7 @@
 
   function openSettings() {
     setMenu(false);
+    setHelp(false);
     resetRound(clock());
     ignored.clear();
     settingsOpen = true;
@@ -1173,12 +1179,32 @@
   }
   function setMode(m) { settings.mode = m; saveSettings(); syncModeUI(); }
 
-  mm.btn.addEventListener('click', () => setMenu(!menuOpen));
+  mm.btn.addEventListener('click', () => { setHelp(false); setMenu(!menuOpen); });
   mm.menu.addEventListener('click', (e) => { if (e.target === mm.menu) setMenu(false); }); // tap outside the card
   mm.minus.addEventListener('click', () => stepCount(-1));
   mm.plus.addEventListener('click', () => stepCount(1));
   mm.groups.addEventListener('click', () => setMode('groups'));
   mm.winners.addEventListener('click', () => setMode('winners'));
+
+  // ---------------------------------------------------------------------------
+  // Help (top-right "?"): a small how-to-play card. Holding "?" for 1.5 s opens the secret settings.
+  // ---------------------------------------------------------------------------
+  const hp = { btn: $('help-btn'), menu: $('help-menu'), close: $('help-close') };
+  let helpOpen = false, helpHoldTimer = 0, helpHeld = false;
+  function setHelp(open) {
+    helpOpen = open && isIdle();
+    hp.menu.classList.toggle('open', helpOpen);
+    hp.menu.setAttribute('aria-hidden', String(!helpOpen));
+  }
+  hp.btn.addEventListener('pointerdown', () => {
+    helpHeld = false;
+    clearTimeout(helpHoldTimer);
+    helpHoldTimer = setTimeout(() => { helpHeld = true; setHelp(false); setMenu(false); openSettings(); }, 1500);
+  });
+  for (const n of ['pointerup', 'pointercancel', 'pointerleave']) hp.btn.addEventListener(n, () => clearTimeout(helpHoldTimer));
+  hp.btn.addEventListener('click', () => { if (helpHeld) { helpHeld = false; return; } setMenu(false); setHelp(!helpOpen); });
+  hp.close.addEventListener('click', () => setHelp(false));
+  hp.menu.addEventListener('click', (e) => { if (e.target === hp.menu) setHelp(false); });
 
   // ---------------------------------------------------------------------------
   // Lifecycle.
@@ -1258,12 +1284,12 @@
       get ignored() { return [...ignored]; },
       get settings() { return JSON.parse(JSON.stringify(settings)); },
       set settings(s) { settings = sanitize(s); saveSettings(); syncModeUI(); kick(); },
-      setMenu, get menuOpen() { return menuOpen; },
+      setMenu, get menuOpen() { return menuOpen; }, setHelp, get helpOpen() { return helpOpen; },
       spotPx, toDevice, fromDevice, history, openSettings, closeSettings,
       get settingsOpen() { return settingsOpen; },
       get settingsOpenedAt() { return settingsOpenedAt; },
       tick() { update(clock()); },
-      SFX, SPEED,
+      SFX, SPEED, sfxLog: audio.sfxLog,
     };
   }
 

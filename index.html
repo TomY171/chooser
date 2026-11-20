@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Chooser">
 <meta name="application-name" content="Chooser">
-<meta name="theme-color" content="#0f0f0f">
+<meta name="theme-color" content="#000000">
 <meta name="color-scheme" content="dark">
 <meta name="format-detection" content="telephone=no">
 <link rel="manifest" href="manifest.webmanifest">
@@ -20,7 +20,7 @@
   [hidden] { display: none !important; }
   html, body {
     margin: 0; padding: 0; height: 100%;
-    background: #0f0f0f;
+    background: #000;
     overflow: hidden;
     overscroll-behavior: none;
   }
@@ -128,6 +128,41 @@
   }
   #mode-card .mseg button.on { background: var(--accent); color: #fff; }
 
+  /* Help button (top-right) and its card. */
+  #help-btn {
+    position: fixed; z-index: 5;
+    right: max(14px, env(safe-area-inset-right));
+    top: max(14px, calc(env(safe-area-inset-top) + 4px));
+    width: 44px; height: 44px; border-radius: 50%; padding: 0; border: 0;
+    background: #fe0070; color: #fff;
+    font: 600 22px/44px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    transition: opacity .25s, transform .12s;
+    touch-action: manipulation;
+    -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+  }
+  #help-btn:active { transform: scale(.92); }
+  body.playing #help-btn { opacity: 0; pointer-events: none; }
+  #help-menu {
+    position: fixed; inset: 0; z-index: 8;
+    display: flex; align-items: center; justify-content: center; padding: 0 20px 6vh;
+    visibility: hidden; pointer-events: none; transition: visibility 0s .2s;
+  }
+  #help-menu.open { visibility: visible; pointer-events: auto; transition: none; }
+  #help-card {
+    max-width: 300px; padding: 18px 18px 14px; border-radius: 14px; background: #fff; color: #222;
+    box-shadow: 0 12px 34px rgba(0, 0, 0, .6);
+    font: 400 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    transform: scale(.35); opacity: 0;
+    transition: transform .22s cubic-bezier(.2, .9, .3, 1.15), opacity .16s;
+  }
+  #help-menu.open #help-card { transform: none; opacity: 1; }
+  #help-card h2 { margin: 0 0 8px; font-size: 18px; }
+  #help-card p { margin: 0 0 8px; }
+  #help-card button {
+    display: block; width: 100%; margin-top: 6px; padding: 10px 0; border: 0; border-radius: 10px;
+    background: #fe0070; color: #fff; font: 600 15px/1 -apple-system, system-ui, sans-serif;
+  }
+
   /* iOS-style switch */
   .sw { -webkit-appearance: none; appearance: none; flex: none; position: relative; width: 51px; height: 31px; margin: 0;
         border-radius: 31px; background: #39393d; transition: background .2s; cursor: pointer; }
@@ -141,6 +176,17 @@
 <canvas id="stage"></canvas>
 
 <button id="mode-btn" type="button" dir="ltr" aria-label="מצב"><span id="mode-num">1</span><span id="mode-letter">ז</span></button>
+<button id="help-btn" type="button" aria-label="איך משחקים">?</button>
+<div id="help-menu" aria-hidden="true">
+  <div id="help-card" dir="rtl" lang="he">
+    <h2>איך משחקים</h2>
+    <p>כל אחד שם אצבע אחת על המסך ומחזיק אותה.</p>
+    <p>אחרי רגע הטבעות מתמלאות והמשחק בוחר מישהו.</p>
+    <p>בכפתור משמאל למעלה בוחרים כמה זוכים, או חלוקה לקבוצות.</p>
+    <p>אחרי הבחירה אפשר להרים את האצבעות, והמסך חוזר לבד.</p>
+    <button id="help-close" type="button">הבנתי</button>
+  </div>
+</div>
 <div id="mode-menu" aria-hidden="true">
   <div id="mode-card" dir="rtl" lang="he">
     <div class="stepper" dir="ltr">
