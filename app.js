@@ -416,7 +416,12 @@
 
   const audio = (() => {
     const AC = window.AudioContext || window.webkitAudioContext;
-    let ac = null, master = null, direct = null, recovering = false, warmed = null, everRan = false;
+    let ac = null, master = null, direct = null, recovering = false, warmed = null, everRan = false, chimeWanted = false;
+    // Opening sound of the reference app: the four finger tones A3 D4 E4 A4 rising (onsets measured).
+    function playChime() {
+      chimeWanted = false;
+      [0, 0.16, 0.3, 0.42].forEach((d, i) => { try { SFX.sfxFingerDown(ac, master, i, at(d)); } catch (_) { /* ignore */ } });
+    }
 
     function applySession() {
       // 'playback' = also plays when the phone is on silent (pauses music apps); 'ambient' = obeys the switch.
@@ -448,6 +453,7 @@
       ac.onstatechange = () => {
         if (ac && ac.state === 'running') everRan = true;
         warm();
+        if (chimeWanted && ready()) playChime(); // the first tap during the opening screen
         kick(); // hide the speaker glyph
       };
       return ac;
@@ -492,6 +498,9 @@
       // Pitch rises with each additional finger: A3, D4, E4, A4, D5, ...
       fingerDown(i) { note('tone' + i); if (ready()) try { SFX.sfxFingerDown(ac, master, i, at()); } catch (_) { /* ignore */ } },
       pop() { note('pop'); if (ready()) try { SFX.sfxPop(ac, direct, at()); } catch (_) { /* ignore */ } },
+      // iPhone web apps can't make sound before the first tap: if it isn't unlocked yet, the chime
+      // waits and plays on a tap during the opening screen. chime(false) cancels the wait.
+      chime(on) { note('chime'); if (on === false) chimeWanted = false; else if (ready()) playChime(); else chimeWanted = true; },
       countdown() {
         note('countdown');
         if (!ready()) return null;
@@ -653,8 +662,23 @@
   }
 
   // Splits everyone into g balanced teams, each with its own random colour (not white).
+  // Cheat: the fingers on the left (win) and right (lose) secret spots always share a team.
   function assignGroups(list, g, t) {
     const order = shuffle(list.slice());
+    if (settings.cheat && order.length > g) {
+      const near = (p, skip) => {
+        let b = null, bd = Infinity;
+        for (const f of order) { const d = dist(f, p); if (f !== skip && d <= settings.radius && d < bd) { b = f; bd = d; } }
+        return b;
+      };
+      const a = near(spotPx('win')), b = a && near(spotPx('lose'), a);
+      if (a && b) {
+        order.splice(order.indexOf(a), 1);
+        order.splice(order.indexOf(b), 1);
+        order.unshift(a);
+        order.splice(g, 0, b); // places 0 and g land on the same team
+      }
+    }
     const colors = [];
     for (let i = 0; i < PALETTE.length; i++) if (i !== WHITE) colors.push(i);
     shuffle(colors);
@@ -1304,6 +1328,8 @@
     const el = document.getElementById('splash');
     if (!el) return;
     if (DEBUG) { el.remove(); return; }
+    audio.chime();
+    setTimeout(() => audio.chime(false), 2750);
     const disc = el.querySelector('.disc');
     setTimeout(() => {
       const d = disc.getBoundingClientRect().width || 1;
