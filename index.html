@@ -8,12 +8,12 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Chooser">
 <meta name="application-name" content="Chooser">
-<meta name="theme-color" content="#000000">
+<meta name="theme-color" content="#0d0d0d">
 <meta name="color-scheme" content="dark">
 <meta name="format-detection" content="telephone=no">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<!-- iOS zooms the icon into these on launch: black with the 4 dots, like the opening screen's first frame -->
+<!-- launch images: plain dark grey; the zoom into the dots happens in the page -->
 <link rel="apple-touch-startup-image" media="(device-width: 402px) and (device-height: 874px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="launch/launch-1206x2622.png">
 <link rel="apple-touch-startup-image" media="(device-width: 440px) and (device-height: 956px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="launch/launch-1320x2868.png">
 <link rel="apple-touch-startup-image" media="(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="launch/launch-1179x2556.png">
@@ -32,7 +32,7 @@
   [hidden] { display: none !important; }
   html, body {
     margin: 0; padding: 0; height: 100%;
-    background: #000;
+    background: #0d0d0d;
     overflow: hidden;
     overscroll-behavior: none;
   }
@@ -96,7 +96,7 @@
   input[type="range"] { flex: 1; max-width: 170px; accent-color: #0a84ff; touch-action: pan-x; }
   output { min-width: 2.5em; text-align: center; color: #c7c7cc; font-variant-numeric: tabular-nums; }
   /* Mode button (top-left) and its menu card. Theme: green = winners, orange = groups. */
-  :root { --accent: #80ba31; }
+  :root { --accent: #83b635; }
   :root[data-mode="groups"] { --accent: #fb7100; }
   #mode-btn {
     position: fixed; z-index: 5;
@@ -106,12 +106,12 @@
     background: var(--accent); color: #fff;
     display: flex; align-items: center; justify-content: center; gap: 1px;
     font: 300 25px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
-    transition: opacity .25s, background-color .2s, transform .12s;
+    transition: transform .1s cubic-bezier(.2, .8, .3, 1), background-color .2s;
     touch-action: manipulation;
   }
   #mode-btn:active { transform: scale(.92); }
   #mode-letter { font-size: 18px; }
-  body.playing #mode-btn { opacity: 0; pointer-events: none; }
+  body.playing #mode-btn { transform: scale(0); transition: transform .08s ease-in; pointer-events: none; }
   #mode-menu {
     position: fixed; inset: 0; z-index: 8;
     display: flex; align-items: center; justify-content: center; padding-bottom: 14vh;
@@ -146,25 +146,25 @@
     right: max(9px, env(safe-area-inset-right));
     top: max(56px, calc(env(safe-area-inset-top) + 4px));
     width: 51px; height: 51px; border-radius: 50%; padding: 0; border: 0;
-    background: #fe0070; color: #fff;
+    background: #ff0080; color: #fff;
     font: 300 28px/51px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
-    transition: opacity .25s, transform .12s;
+    transition: transform .1s cubic-bezier(.2, .8, .3, 1);
     touch-action: manipulation;
     -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
   }
   #help-btn:active { transform: scale(.92); }
-  body.playing #help-btn { opacity: 0; pointer-events: none; }
+  body.playing #help-btn { transform: scale(0); transition: transform .08s ease-in; pointer-events: none; }
   /* Idle texts like the original: the finger minimum in the middle, the pick count at the bottom. */
   #hint {
     position: fixed; z-index: 4; left: 50%; top: 50%; transform: translate(-50%, -50%);
-    padding: 13px 20px; border-radius: 9px; background: #1c1c1c; color: #e6e6e6;
+    padding: 13px 20px; border-radius: 9px; background: #181818; color: #e6e6e6;
     font: 600 15px/1.25 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; white-space: nowrap;
-    pointer-events: none; transition: opacity .25s;
+    pointer-events: none; transition: opacity .17s linear;
   }
   #count {
     position: fixed; z-index: 4; left: 0; right: 0; bottom: 43px; text-align: center;
-    color: #b4b4b4; font: 400 15px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; letter-spacing: .3px;
-    pointer-events: none; transition: opacity .25s;
+    color: #bdbdbd; font: 400 15px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; letter-spacing: .3px;
+    pointer-events: none; transition: opacity .17s linear;
   }
   body.playing #hint, body.playing #count, body.secret #hint, body.secret #count { opacity: 0; }
   #help-menu {
@@ -189,13 +189,15 @@
   }
 
   /* Opening screen: yellow with the icon's dark circle; the circle then grows over the screen. */
-  #splash { position: fixed; inset: 0; z-index: 20; background: #000; transition: background-color .17s ease-in-out; }
+  #splash { position: fixed; inset: 0; z-index: 20; background: #0d0d0d; transition: background-color .17s ease-in-out; }
   #splash.open { background: #ffc90a; }
   #splash .disc, #splash .dots {
     position: absolute; width: min(55vw, 280px); height: min(55vw, 280px);
     left: calc(50% - min(27.5vw, 140px)); top: calc(50% - min(27.5vw, 140px));
   }
-  #splash .disc { border-radius: 50%; background: #000; will-change: transform; }
+  #splash .disc { border-radius: 50%; background: #0d0d0d; will-change: transform; }
+  #splash .dots { transform: scale(.3); opacity: 0; transition: transform .22s cubic-bezier(.2, .7, .3, 1), opacity .08s linear; }
+  #splash.in .dots { transform: none; opacity: 1; }
   #splash .dot { position: absolute; width: 13.6%; height: 13.6%; border-radius: 50%; background: #51c4ca; }
   #splash .dot.y { background: #ffc90a; }
   #splash .d1 { left: 26.7%; top: 26.7%; } #splash .d2 { left: 59.7%; top: 26.7%; }
