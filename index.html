@@ -163,6 +163,18 @@
     background: #fe0070; color: #fff; font: 600 15px/1 -apple-system, system-ui, sans-serif;
   }
 
+  /* Opening screen: yellow with the icon's dark circle; the circle then grows over the screen. */
+  #splash { position: fixed; inset: 0; z-index: 20; background: #ffc90a; display: flex; align-items: center; justify-content: center; }
+  #splash .disc {
+    position: relative; width: 55vw; height: 55vw; max-width: 280px; max-height: 280px;
+    border-radius: 50%; background: #000; transition: transform .5s cubic-bezier(.5, 0, .9, .6);
+  }
+  #splash .dot { position: absolute; width: 13.6%; height: 13.6%; border-radius: 50%; background: #51c4ca; transition: opacity .35s; }
+  #splash .dot.y { background: #ffc90a; }
+  #splash .d1 { left: 26.7%; top: 26.7%; } #splash .d2 { left: 59.7%; top: 26.7%; }
+  #splash .d3 { left: 26.7%; top: 59.7%; } #splash .d4 { left: 59.7%; top: 59.7%; }
+  #splash.go .dot { opacity: 0; }
+
   /* iOS-style switch */
   .sw { -webkit-appearance: none; appearance: none; flex: none; position: relative; width: 51px; height: 31px; margin: 0;
         border-radius: 31px; background: #39393d; transition: background .2s; cursor: pointer; }
@@ -174,6 +186,7 @@
 </head>
 <body>
 <canvas id="stage"></canvas>
+<div id="splash"><div class="disc"><i class="dot y d1"></i><i class="dot d2"></i><i class="dot d3"></i><i class="dot d4"></i></div></div>
 
 <button id="mode-btn" type="button" dir="ltr" aria-label="מצב"><span id="mode-num">1</span><span id="mode-letter">ז</span></button>
 <button id="help-btn" type="button" aria-label="איך משחקים">?</button>

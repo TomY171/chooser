@@ -1299,6 +1299,20 @@
     };
   }
 
+  // Opening screen (every fresh launch): hold ~2.2 s, then the dark circle grows over the screen.
+  (function splash() {
+    const el = document.getElementById('splash');
+    if (!el) return;
+    if (DEBUG) { el.remove(); return; }
+    const disc = el.querySelector('.disc');
+    setTimeout(() => {
+      const d = disc.getBoundingClientRect().width || 1;
+      disc.style.transform = 'scale(' + (Math.hypot(window.innerWidth, window.innerHeight) / d * 1.05).toFixed(2) + ')';
+      el.classList.add('go');
+      setTimeout(() => el.remove(), 550);
+    }, 2200);
+  })();
+
   resize();
   syncSettingsUI();
   syncModeUI();
