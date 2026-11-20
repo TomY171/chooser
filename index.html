@@ -83,6 +83,51 @@
   .btns button { flex: 1; }
   input[type="range"] { flex: 1; max-width: 170px; accent-color: #0a84ff; touch-action: pan-x; }
   output { min-width: 2.5em; text-align: center; color: #c7c7cc; font-variant-numeric: tabular-nums; }
+  /* Mode button (top-left) and its menu card. Theme: green = winners, orange = groups. */
+  :root { --accent: #80ba31; }
+  :root[data-mode="groups"] { --accent: #fb7100; }
+  #mode-btn {
+    position: fixed; z-index: 5;
+    left: max(14px, env(safe-area-inset-left));
+    top: max(14px, calc(env(safe-area-inset-top) + 4px));
+    width: 44px; height: 44px; border-radius: 50%; padding: 0; border: 0;
+    background: var(--accent); color: #fff;
+    display: flex; align-items: center; justify-content: center; gap: 1px;
+    font: 500 18px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    transition: opacity .25s, background-color .2s, transform .12s;
+    touch-action: manipulation;
+  }
+  #mode-btn:active { transform: scale(.92); }
+  #mode-letter { font-size: 14px; }
+  body.playing #mode-btn { opacity: 0; pointer-events: none; }
+  #mode-menu {
+    position: fixed; inset: 0; z-index: 8;
+    display: flex; align-items: center; justify-content: center; padding-bottom: 14vh;
+    visibility: hidden; pointer-events: none; transition: visibility 0s .2s;
+  }
+  #mode-menu.open { visibility: visible; pointer-events: auto; transition: none; }
+  #mode-card {
+    width: 168px; padding: 14px 14px 12px; border-radius: 12px; background: #fff;
+    box-shadow: 0 12px 34px rgba(0, 0, 0, .55);
+    transform: scale(.35); opacity: 0;
+    transition: transform .22s cubic-bezier(.2, .9, .3, 1.15), opacity .16s;
+  }
+  #mode-menu.open #mode-card { transform: none; opacity: 1; }
+  #mode-card .stepper { display: flex; align-items: center; justify-content: space-between; }
+  #mode-card .stepper button {
+    width: 34px; height: 34px; border-radius: 50%; padding: 0;
+    border: 2px solid var(--accent); background: transparent; color: var(--accent);
+    font: 400 24px/1 -apple-system, system-ui, sans-serif;
+  }
+  #mode-card .stepper button:disabled { border-color: #d0d0d0; color: #d0d0d0; }
+  #m-count { font: 300 32px/1 -apple-system, system-ui, sans-serif; color: #2a2a2a; font-variant-numeric: tabular-nums; }
+  #mode-card .mseg { display: flex; margin-top: 12px; border: 2px solid var(--accent); border-radius: 9px; overflow: hidden; }
+  #mode-card .mseg button {
+    flex: 1; border: 0; border-radius: 0; padding: 7px 0; background: transparent; color: var(--accent);
+    font: 600 13px/1 -apple-system, system-ui, sans-serif;
+  }
+  #mode-card .mseg button.on { background: var(--accent); color: #fff; }
+
   /* iOS-style switch */
   .sw { -webkit-appearance: none; appearance: none; flex: none; position: relative; width: 51px; height: 31px; margin: 0;
         border-radius: 31px; background: #39393d; transition: background .2s; cursor: pointer; }
@@ -95,6 +140,18 @@
 <body>
 <canvas id="stage"></canvas>
 
+<button id="mode-btn" type="button" dir="ltr" aria-label="מצב"><span id="mode-num">1</span><span id="mode-letter">ז</span></button>
+<div id="mode-menu" aria-hidden="true">
+  <div id="mode-card" dir="rtl" lang="he">
+    <div class="stepper" dir="ltr">
+      <button id="m-minus" type="button" aria-label="פחות">−</button>
+      <span id="m-count">1</span>
+      <button id="m-plus" type="button" aria-label="יותר">+</button>
+    </div>
+    <div class="mseg"><button id="m-winners" type="button">זוכה</button><button id="m-groups" type="button">קבוצות</button></div>
+  </div>
+</div>
+
 <div id="settings" class="top" hidden>
   <div class="sheet" dir="rtl" lang="he">
     <div class="head">
@@ -103,17 +160,14 @@
     </div>
     <label class="row"><span>צ'יט פעיל<small>Cheat on</small></span><input class="sw" type="checkbox" id="s-cheat"></label>
     <label class="row"><span>נקודת "לא נבחר" = מראה של נקודת הזכייה<small>Lose spot mirrors the win spot</small></span><input class="sw" type="checkbox" id="s-mirror"></label>
-    <div class="row"><span>איזו נקודה להזיז<small>Spot to move</small></span>
-      <div class="seg"><button id="s-sel-win" type="button" class="on">✓ זכייה</button><button id="s-sel-lose" type="button">✗ לא נבחר</button></div>
-    </div>
-    <p class="note">גע או גרור על המסך כדי למקם את הנקודה (ירוק = תמיד נבחר, אדום = אף פעם)<small>Touch or drag on the screen to place it (green = always picked, red = never)</small></p>
+    <p class="note">גרור את העיגול הירוק למקום שבו תשים את האצבע (ירוק = תמיד נבחר, אדום = אף פעם לא נבחר). העיגול מוסתר מתחת לחלון? לחץ ⇅<small>Drag the green circle to where you will put your finger (green = always picked, red = never). Hidden under this panel? Tap ⇅</small></p>
     <label class="row"><span>גודל נקודה<small>Spot size</small></span><input type="range" id="s-radius" min="20" max="90" step="1"><output id="s-radius-out"></output></label>
     <label class="row"><span>נקודה עמומה במקום הזכייה<small>Faint dot at the win spot</small></span><input class="sw" type="checkbox" id="s-hint"></label>
     <label class="row"><span>הצג נקודות במשחק (לבדיקה)<small>Show spots while playing (testing)</small></span><input class="sw" type="checkbox" id="s-show"></label>
     <label class="row"><span>צלילים<small>Sound</small></span><input class="sw" type="checkbox" id="s-sound"></label>
-    <div class="row"><span>אצבעות כדי להתחיל<small>Fingers needed to start</small></span>
-      <div class="seg"><button id="s-min1" type="button">1</button><button id="s-min2" type="button">2</button></div>
-    </div>
+    <label class="row"><span>צלילים גם כשהטלפון על שקט<small>Sound even when the phone is on silent (pauses music)</small></span><input class="sw" type="checkbox" id="s-silent"></label>
+    <div class="row"><span>בדיקת צליל<small>Test the sound</small></span><button id="s-test" type="button">🔊</button></div>
+    <label class="row"><span>להתחיל עם אצבע אחת פחות (לבדיקה לבד)<small>Start with one finger less (to test alone)</small></span><input class="sw" type="checkbox" id="s-solo"></label>
     <div class="row btns"><button id="s-reset" type="button">ברירת מחדל</button><button id="s-close" type="button" class="primary">סגור</button></div>
   </div>
 </div>
