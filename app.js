@@ -45,6 +45,7 @@
   const mixRgb = (a, b, k) => 'rgb(' + a.map((v, i) => Math.round(v + (b[i] - v) * k)).join(',') + ')';
   const MAX_COUNT = 4;       // up to 4 winners or 4 groups (an iPhone tracks at most 5 fingers)
   const T_GROUP_TINT = 0.25; // groups: white -> team colour
+  const T_POP_HOLD = 0.52;   // pop on lift only once the ring is 2/3 drawn (0.08 s delay + eased 0.72 s draw)
   const T_AUTO_RETURN = 3.0; // after the chosen fingers lift, the result stays this long, then black
   const T_MIN_RESULT = 1.0;  // a new tap can end the result only this long after the pick
   const R_MEAN = 36.3;       // fill radius pulses 34.0 .. 38.7
@@ -410,7 +411,6 @@
   })();
   /* SFX-END */
 
-  const COLOR_TONE = [0, 1, 2, 2, 1, 3, 3]; // palette index -> tone (A3, D4, E4, A4)
   const COUNTDOWN_DELAY = 0.22; // the countdown tone starts ~0.22 s into the ring sweep
   const COUNTDOWN_LEN = 0.846;  // and lasts 0.846 s (both measured)
 
@@ -489,9 +489,8 @@
       resume() { if (settings.sound && ac && ac.state !== 'closed' && ac.state !== 'running') ac.resume().catch(() => {}); },
       running: () => !!ac && ac.state === 'running',
       everRan: () => everRan,
-      // The reference app's tone depends on the finger's colour: white A3, orange/teal D4,
-      // yellow E4, pink A4 (measured); green E4 and red A4 follow the same pattern.
-      fingerDown(color) { note('tone' + (COLOR_TONE[color] || 0)); if (ready()) try { SFX.sfxFingerDown(ac, master, COLOR_TONE[color] || 0, at()); } catch (_) { /* ignore */ } },
+      // Pitch rises with each additional finger: A3, D4, E4, A4, D5, ...
+      fingerDown(i) { note('tone' + i); if (ready()) try { SFX.sfxFingerDown(ac, master, i, at()); } catch (_) { /* ignore */ } },
       pop() { note('pop'); if (ready()) try { SFX.sfxPop(ac, direct, at()); } catch (_) { /* ignore */ } },
       countdown() {
         note('countdown');
@@ -595,7 +594,7 @@
     markGone(f, t, T.removeShrink);
     lastChange = t;
     if (phase === 'sweep') cancelSweep(t);
-    return true;
+    return t - f.t0 >= T_POP_HOLD;
   }
 
   // "Tap to play again": a new tap clears the result. One winner: its dot shrinks and the dark
@@ -746,7 +745,7 @@
       const f = addFinger(id, pos.x, pos.y, t);
       if (!first) first = f;
     }
-    if (first) audio.fingerDown(first.color);
+    if (first) audio.fingerDown(first.order);
   }
 
   function farCorner(x, y) {
@@ -962,7 +961,7 @@
       }
       if (fingers.has(id)) fingers.delete(id); // stale entry with a reused id
       const f = addFinger(id, tc.clientX, tc.clientY, t);
-      if (f && !toned) { toned = true; audio.fingerDown(f.color); } // one tone per touch, like the original
+      if (f && !toned) { toned = true; audio.fingerDown(f.order); } // one tone per touch, like the original
     }
     kick();
   }
