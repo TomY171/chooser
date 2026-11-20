@@ -89,7 +89,7 @@
     hint: false,                  // faint dot at the win spot
     showSpots: false,             // draw both spots while playing (testing)
     sound: true,
-    silentPlay: false,            // true = also play on silent, but that pauses music apps
+    silentPlay: true,             // true = also play on silent, but that pauses music apps
     minFingers: 2,
     dock: 'top',
   };
@@ -113,8 +113,8 @@
       hint: typeof s.hint === 'boolean' ? s.hint : DEFAULTS.hint,
       showSpots: typeof s.showSpots === 'boolean' ? s.showSpots : DEFAULTS.showSpots,
       sound: typeof s.sound === 'boolean' ? s.sound : DEFAULTS.sound,
-      silentPlay: s.v === 2 && typeof s.silentPlay === 'boolean' ? s.silentPlay : DEFAULTS.silentPlay,
-      v: 2,
+      silentPlay: s.v === 3 && typeof s.silentPlay === 'boolean' ? s.silentPlay : DEFAULTS.silentPlay,
+      v: 3,
       minFingers: s.minFingers === 1 ? 1 : 2,
       dock: s.dock === 'bottom' ? 'bottom' : 'top',
     };
