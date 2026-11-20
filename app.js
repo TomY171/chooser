@@ -905,6 +905,7 @@
   // Secret gesture: 5 quick taps in the top-right corner open the settings.
   // The zone is generous because on some iOS versions a system bar covers the top ~60 px.
   // ---------------------------------------------------------------------------
+  let lastPopLift = -1;
   const tapStarts = new Map();
   const cornerTaps = [];
   let openRequested = false;
@@ -989,7 +990,13 @@
       lateTouches.delete(tc.identifier);
       if (liftFinger(tc.identifier, t)) popped = true;
     }
-    if (popped) audio.pop(); // one pop per lift, even if several fingers lift together
+    if (popped) {
+      // Fingers lifted together arrive a few ms apart: one pop for the whole group (any lift less
+      // than 0.25 s after the previous one stays silent).
+      const now = realNow();
+      if (now - lastPopLift > 0.25) audio.pop();
+      lastPopLift = now;
+    }
     syncWithTouchList(e.touches, t);
     if (openRequested) { openRequested = false; openSettings(); }
     kick();
