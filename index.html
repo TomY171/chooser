@@ -100,17 +100,17 @@
   :root[data-mode="groups"] { --accent: #fb7100; }
   #mode-btn {
     position: fixed; z-index: 5;
-    left: max(14px, env(safe-area-inset-left));
-    top: max(14px, calc(env(safe-area-inset-top) + 4px));
-    width: 44px; height: 44px; border-radius: 50%; padding: 0; border: 0;
+    left: max(9px, env(safe-area-inset-left));
+    top: max(56px, calc(env(safe-area-inset-top) + 4px));
+    width: 51px; height: 51px; border-radius: 50%; padding: 0; border: 0;
     background: var(--accent); color: #fff;
     display: flex; align-items: center; justify-content: center; gap: 1px;
-    font: 500 18px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    font: 300 25px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
     transition: opacity .25s, background-color .2s, transform .12s;
     touch-action: manipulation;
   }
   #mode-btn:active { transform: scale(.92); }
-  #mode-letter { font-size: 14px; }
+  #mode-letter { font-size: 18px; }
   body.playing #mode-btn { opacity: 0; pointer-events: none; }
   #mode-menu {
     position: fixed; inset: 0; z-index: 8;
@@ -143,11 +143,11 @@
   /* Help button (top-right) and its card. */
   #help-btn {
     position: fixed; z-index: 5;
-    right: max(14px, env(safe-area-inset-right));
-    top: max(14px, calc(env(safe-area-inset-top) + 4px));
-    width: 44px; height: 44px; border-radius: 50%; padding: 0; border: 0;
+    right: max(9px, env(safe-area-inset-right));
+    top: max(56px, calc(env(safe-area-inset-top) + 4px));
+    width: 51px; height: 51px; border-radius: 50%; padding: 0; border: 0;
     background: #fe0070; color: #fff;
-    font: 600 22px/44px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    font: 300 28px/51px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
     transition: opacity .25s, transform .12s;
     touch-action: manipulation;
     -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
@@ -176,17 +176,17 @@
   }
 
   /* Opening screen: yellow with the icon's dark circle; the circle then grows over the screen. */
-  #splash { position: fixed; inset: 0; z-index: 20; background: #000; transition: background-color .25s linear; display: flex; align-items: center; justify-content: center; }
-  #splash .disc {
-    position: relative; width: 55vw; height: 55vw; max-width: 280px; max-height: 280px;
-    border-radius: 50%; background: #000; transition: transform .75s cubic-bezier(.5, 0, .9, .6);
+  #splash { position: fixed; inset: 0; z-index: 20; background: #000; transition: background-color .17s ease-in-out; }
+  #splash.open { background: #ffc90a; }
+  #splash .disc, #splash .dots {
+    position: absolute; width: min(55vw, 280px); height: min(55vw, 280px);
+    left: calc(50% - min(27.5vw, 140px)); top: calc(50% - min(27.5vw, 140px));
   }
-  #splash .dot { position: absolute; width: 13.6%; height: 13.6%; border-radius: 50%; background: #51c4ca; transition: opacity .35s; }
+  #splash .disc { border-radius: 50%; background: #000; will-change: transform; }
+  #splash .dot { position: absolute; width: 13.6%; height: 13.6%; border-radius: 50%; background: #51c4ca; }
   #splash .dot.y { background: #ffc90a; }
   #splash .d1 { left: 26.7%; top: 26.7%; } #splash .d2 { left: 59.7%; top: 26.7%; }
   #splash .d3 { left: 26.7%; top: 59.7%; } #splash .d4 { left: 59.7%; top: 59.7%; }
-  #splash.open { background: #ffc90a; }
-  #splash.go .dot { opacity: 0; }
 
   /* iOS-style switch */
   .sw { -webkit-appearance: none; appearance: none; flex: none; position: relative; width: 51px; height: 31px; margin: 0;
@@ -199,9 +199,9 @@
 </head>
 <body>
 <canvas id="stage"></canvas>
-<div id="splash"><div class="disc"><i class="dot y d1"></i><i class="dot d2"></i><i class="dot d3"></i><i class="dot d4"></i></div></div>
+<div id="splash"><div class="disc"></div><div class="dots"><i class="dot y d1"></i><i class="dot d2"></i><i class="dot d3"></i><i class="dot d4"></i></div></div>
 
-<button id="mode-btn" type="button" dir="ltr" aria-label="מצב"><span id="mode-num">1</span><span id="mode-letter">ז</span></button>
+<button id="mode-btn" type="button" dir="ltr" aria-label="מצב"><span id="mode-letter">ז</span><span id="mode-num">1</span></button>
 <button id="help-btn" type="button" aria-label="איך משחקים">?</button>
 <div id="help-menu" aria-hidden="true">
   <div id="help-card" dir="rtl" lang="he">

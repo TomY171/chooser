@@ -1407,16 +1407,38 @@
     if (!el) return;
     if (DEBUG) { el.remove(); return; }
     audio.chime();
-    const disc = el.querySelector('.disc');
-    // Starts black with the dots (matching iOS's launch image), then the yellow fades in around the circle.
-    setTimeout(() => el.classList.add('open'), 150);
+    const disc = el.querySelector('.disc'), dots = el.querySelector('.dots');
+    // Measured frame by frame from the original: black with the dots (iOS's launch image), the
+    // yellow fades in, a hold, then the circle grows (the dots keep their size) while the yellow
+    // and the dots fade to black. GROW = [seconds, circle scale].
+    setTimeout(() => el.classList.add('open'), 160);
+    const GROW = [[0, 1], [0.08, 1.02], [0.13, 1.047], [0.18, 1.091], [0.23, 1.149], [0.28, 1.233], [0.33, 1.336],
+      [0.38, 1.475], [0.43, 1.638], [0.46, 1.764], [0.493, 1.909], [0.527, 2.073], [0.56, 2.273], [0.594, 2.473],
+      [0.627, 2.691], [0.661, 2.927], [0.694, 3.2], [0.727, 3.491], [0.761, 3.8]];
+    const scaleAt = (t) => {
+      if (t <= 0) return 1;
+      for (let i = 1; i < GROW.length; i++) {
+        if (t > GROW[i][0]) continue;
+        const [t0, s0] = GROW[i - 1], [t1, s1] = GROW[i];
+        return s0 * Math.pow(s1 / s0, (t - t0) / (t1 - t0));
+      }
+      const [tl, sl] = GROW[GROW.length - 1];
+      return sl * Math.exp(2.55 * (t - tl)); // it keeps growing ~2.55x per second
+    };
     setTimeout(() => {
       audio.chime(false);
-      audio.whoosh(); // the swell starts with the growth and cuts off just after the screen is black
-      const d = disc.getBoundingClientRect().width || 1;
-      disc.style.transform = 'scale(' + (Math.hypot(window.innerWidth, window.innerHeight) / d * 1.05).toFixed(2) + ')';
-      el.classList.add('go');
-      setTimeout(() => el.remove(), 800);
+      audio.whoosh();
+      el.style.transition = 'none';
+      const start = performance.now() + 35; // the swell starts 35 ms before the circle moves
+      const step = (now) => {
+        const t = (now - start) / 1000;
+        disc.style.transform = 'scale(' + scaleAt(t).toFixed(4) + ')';
+        const f = clamp01((t - 0.31) / 0.6); // yellow and dots fade out together, linearly
+        el.style.backgroundColor = 'rgb(' + Math.round(255 * (1 - f)) + ',' + Math.round(201 * (1 - f)) + ',' + Math.round(10 * (1 - f)) + ')';
+        dots.style.opacity = String(1 - f);
+        if (t < 0.95) requestAnimationFrame(step); else el.remove();
+      };
+      requestAnimationFrame(step);
     }, 2300);
   })();
 
