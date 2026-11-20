@@ -83,7 +83,10 @@
     mirror: true,                 // lose spot = mirror image of the win spot
     // Left side: always picked. This is where the left finger was in the reference video, on the
     // owner's 402x874 screen (that video was cropped at the bottom).
-    win: { u: 0.196, v: 0.623 },
+    // Spot 1 is the left spot from the video. The win spot moves 1 -> 2 -> 3 -> 1 ... after every
+    // pick, and the first pick after IDLE_RESET without picks uses spot 1 again.
+    wins: [{ u: 0.196, v: 0.623 }, { u: 0.804, v: 0.40 }, { u: 0.30, v: 0.80 }, { u: 0.70, v: 0.25 }],
+    spots: 3,                     // how many of `wins` take turns (1..4)
     lose: { u: 0.804, v: 0.623 }, // right side: never picked (used when mirror is off)
     radius: 45,                   // spot radius in CSS px
     hint: false,                  // faint dot at the win spot
@@ -107,9 +110,11 @@
       groups: clamp(Math.round(num(s.groups, DEFAULTS.groups)), 2, MAX_COUNT),
       cheat: typeof s.cheat === 'boolean' ? s.cheat : DEFAULTS.cheat,
       mirror: typeof s.mirror === 'boolean' ? s.mirror : DEFAULTS.mirror,
-      win: point(s.win, DEFAULTS.win),
+      // older versions had a single `win` spot: it becomes spot 1
+      wins: DEFAULTS.wins.map((d, i) => point(Array.isArray(s.wins) ? s.wins[i] : (i === 0 ? s.win : null), d)),
+      spots: clamp(Math.round(num(s.spots, DEFAULTS.spots)), 1, DEFAULTS.wins.length),
       lose: point(s.lose, DEFAULTS.lose),
-      radius: clamp(Math.round(num(s.radius, DEFAULTS.radius)), 20, 90),
+      radius: clamp(Math.round(num(s.radius, DEFAULTS.radius)), 20, 120),
       hint: typeof s.hint === 'boolean' ? s.hint : DEFAULTS.hint,
       showSpots: typeof s.showSpots === 'boolean' ? s.showSpots : DEFAULTS.showSpots,
       sound: typeof s.sound === 'boolean' ? s.sound : DEFAULTS.sound,
@@ -175,8 +180,27 @@
     if (a === 180) return { x: (1 - p.u) * W, y: (1 - p.v) * H };
     return { x: p.u * W, y: p.v * H };
   }
-  const loseSpot = () => (settings.mirror ? { u: 1 - settings.win.u, v: settings.win.v } : settings.lose);
-  const spotPx = (which) => fromDevice(which === 'win' ? settings.win : loseSpot());
+  // Which win spot is live: advances after every pick, saved so an app reload keeps the pattern.
+  const STEP_KEY = 'chooser.step.v1';
+  const IDLE_RESET_MS = 10 * 60 * 1000;
+  let spotStep = { i: 0, at: 0 };
+  try {
+    const s = JSON.parse(localStorage.getItem(STEP_KEY));
+    if (s && isFinite(s.i) && isFinite(s.at)) spotStep = { i: Math.max(0, s.i | 0), at: +s.at };
+  } catch (_) { /* ignore */ }
+  const stepNow = () => (Date.now() - spotStep.at > IDLE_RESET_MS ? 0 : spotStep.i) % settings.spots;
+  function saveStep(i) {
+    spotStep = { i, at: i ? Date.now() : 0 };
+    try { localStorage.setItem(STEP_KEY, JSON.stringify(spotStep)); } catch (_) { /* ignore */ }
+  }
+  function advanceSpot() {
+    spotStep = { i: (stepNow() + 1) % settings.spots, at: Date.now() };
+    try { localStorage.setItem(STEP_KEY, JSON.stringify(spotStep)); } catch (_) { /* ignore */ }
+  }
+  const mirrorOf = (p) => ({ u: 1 - p.u, v: p.v });
+  const winSpot = (i) => settings.wins[i === undefined ? stepNow() : i];
+  const loseSpot = (i) => (settings.mirror ? mirrorOf(winSpot(i)) : settings.lose);
+  const spotPx = (which, i) => fromDevice(which === 'win' ? winSpot(i) : loseSpot(i));
 
   // ---------------------------------------------------------------------------
   // Easing.
@@ -726,6 +750,8 @@
       rec = { mode: 'winners', n: list.length, winnerId: res.chosen[0].id, winnerIds: res.chosen.map((f) => f.id), why: res.why };
     }
     audio.pick();
+    if (DEBUG) rec.spot = stepNow() + 1;
+    advanceSpot();
     if (DEBUG) {
       history.push(rec);
       if (history.length > 1000) history.shift();
@@ -868,27 +894,36 @@
   }
 
   function drawSpots() {
-    const R = settings.radius;
-    const spots = [['win', '#30d158', '✓'], ['lose', '#ff453a', '✗']];
+    // Settings: every spot, numbered, the next one bright. Playing (testing): only the live pair.
+    const R = settings.radius, now = stepNow();
+    const spots = [];
+    for (let i = 0; i < settings.spots; i++) {
+      if (!settingsOpen && i !== now) continue;
+      spots.push(['win', i, '#30d158']);
+      if (settings.mirror || i === now) spots.push(['lose', i, '#ff453a']);
+    }
     ctx.save();
     ctx.lineCap = 'butt';
     ctx.font = '600 16px -apple-system, system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    for (const [key, col, label] of spots) {
+    for (const [key, i, col] of spots) {
       if (!settings.cheat && !settingsOpen) continue;
-      const p = spotPx(key);
-      ctx.globalAlpha = settingsOpen ? 0.22 : 0.12;
+      const p = spotPx(key, i), live = i === now;
+      ctx.globalAlpha = (settingsOpen ? 0.22 : 0.12) * (live ? 1 : 0.5);
       ctx.fillStyle = col;
       ctx.beginPath(); ctx.arc(p.x, p.y, R, 0, TAU); ctx.fill();
-      ctx.globalAlpha = settingsOpen ? 1 : 0.5;
-      ctx.strokeStyle = col; ctx.lineWidth = 2;
+      ctx.globalAlpha = (settingsOpen ? 1 : 0.5) * (live ? 1 : 0.45);
+      ctx.strokeStyle = col; ctx.lineWidth = live ? 3 : 2;
       ctx.beginPath(); ctx.arc(p.x, p.y, R, 0, TAU); ctx.stroke();
       ctx.beginPath();
       ctx.moveTo(p.x - 7, p.y); ctx.lineTo(p.x + 7, p.y);
       ctx.moveTo(p.x, p.y - 7); ctx.lineTo(p.x, p.y + 7);
       ctx.stroke();
-      if (settingsOpen) { ctx.fillStyle = col; ctx.fillText(label, p.x, p.y - R - 12); }
+      if (settingsOpen) {
+        const label = (key === 'win' ? '✓' : '✗') + (settings.spots > 1 && (key === 'win' || settings.mirror) ? ' ' + (i + 1) : '');
+        ctx.fillStyle = col; ctx.fillText(label, p.x, p.y - R - 12);
+      }
     }
     ctx.restore();
   }
@@ -1073,7 +1108,7 @@
   const $ = (id) => document.getElementById(id);
   const el = {
     root: $('settings'), sheet: document.querySelector('#settings .sheet'), dock: $('s-dock'), cheat: $('s-cheat'), mirror: $('s-mirror'),
-    radius: $('s-radius'), radiusOut: $('s-radius-out'),
+    radius: $('s-radius'), radiusOut: $('s-radius-out'), spots: $('s-spots'), spotsOut: $('s-spots-out'),
     hint: $('s-hint'), show: $('s-show'), sound: $('s-sound'), silent: $('s-silent'), test: $('s-test'),
     solo: $('s-solo'), reset: $('s-reset'), close: $('s-close'),
   };
@@ -1092,6 +1127,8 @@
     el.mirror.checked = settings.mirror;
     el.radius.value = String(settings.radius);
     el.radiusOut.textContent = String(settings.radius);
+    el.spots.value = String(settings.spots);
+    el.spotsOut.textContent = settings.spots > 1 ? settings.spots + ' (הבא: ' + (stepNow() + 1) + ')' : '1';
     el.hint.checked = settings.hint;
     el.show.checked = settings.showSpots;
     el.sound.checked = settings.sound;
@@ -1110,12 +1147,14 @@
     settingsOpenedAt = realNow();
     dockFlip = false;
     dragTouch = null;
+    pinch = null;
     syncSettingsUI();
     kick();
   }
   function closeSettings() {
     settingsOpen = false;
     dragTouch = null;
+    pinch = null;
     saveSettings();
     syncSettingsUI();
     resetRound(clock());
@@ -1123,35 +1162,58 @@
     kick();
   }
 
-  function placeSpot(which, x, y) {
+  function placeSpot(which, i, x, y) {
     const p = toDevice(clamp(x, 0, W), clamp(y, 0, H));
-    if (which === 'win') settings.win = p;
-    else if (settings.mirror) settings.win = { u: 1 - p.u, v: p.v };
+    if (which === 'win') settings.wins[i] = p;
+    else if (settings.mirror) settings.wins[i] = mirrorOf(p);
     else settings.lose = p;
   }
 
+  // Two fingers on the screen (not on the panel) pinch the spot size.
+  let pinch = null; // { a, b, d0, r0 }
+  const touchById = (list, id) => { for (const tc of list) if (tc.identifier === id) return tc; return null; };
+
   function settingsTouch(e, kind) {
     if (kind === 'start') {
+      if (dragTouch && !onGlass.has(dragTouch.id)) dragTouch = null; // its touch was taken by the system
+      if (realNow() - settingsOpenedAt < 0.6) return;
+      const on = [...e.touches].filter((tc) => tc.target === canvas);
+      if (!pinch && on.length >= 2) {
+        if (dragTouch) { placeSpot(dragTouch.which, dragTouch.i, dragTouch.x0, dragTouch.y0); dragTouch = null; } // undo the drag
+        const [a, b] = on;
+        pinch = { a: a.identifier, b: b.identifier, d0: Math.max(20, Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY)), r0: settings.radius };
+        kick();
+        return;
+      }
       // Only a touch that starts on a spot moves it, so extra taps (like a 6th tap on the corner)
       // or stray touches never move a spot.
-      if (dragTouch && !onGlass.has(dragTouch.id)) dragTouch = null; // its touch was taken by the system
-      if (dragTouch || realNow() - settingsOpenedAt < 0.6) return;
+      if (dragTouch || pinch) return;
       const tc = e.changedTouches[0];
       const x = tc.clientX, y = tc.clientY, R = Math.max(settings.radius, 30) + 30;
-      const w = spotPx('win'), l = spotPx('lose');
-      const dw = Math.hypot(x - w.x, y - w.y), dl = Math.hypot(x - l.x, y - l.y);
-      let which = null;
-      if (dw <= R && dw <= dl) which = 'win';
-      else if (dl <= R) which = 'lose';
-      if (!which) return;
-      dragTouch = { id: tc.identifier, which, x, y };
-      placeSpot(which, x, y);
+      let best = null, bestD = R;
+      for (let i = 0; i < settings.spots; i++) {
+        for (const which of ['win', 'lose']) {
+          if (which === 'lose' && !settings.mirror && i !== stepNow()) continue;
+          const p = spotPx(which, i), d = Math.hypot(x - p.x, y - p.y);
+          if (d <= bestD) { best = { which, i, p }; bestD = d; }
+        }
+      }
+      if (!best) return;
+      dragTouch = { id: tc.identifier, which: best.which, i: best.i, x, y, x0: best.p.x, y0: best.p.y };
+      placeSpot(best.which, best.i, x, y);
+    } else if (pinch) {
+      const a = touchById(e.touches, pinch.a), b = touchById(e.touches, pinch.b);
+      if (a && b) {
+        const d = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+        settings.radius = clamp(Math.round(pinch.r0 * d / pinch.d0), 20, 120);
+        syncSettingsUI();
+      } else if (kind === 'end') { pinch = null; saveSettings(); syncSettingsUI(); }
     } else if (dragTouch) {
       for (const tc of e.changedTouches) {
         if (tc.identifier !== dragTouch.id) continue;
         if (kind !== 'end' || e.type === 'touchend') {
           dragTouch.x = tc.clientX; dragTouch.y = tc.clientY;
-          placeSpot(dragTouch.which, tc.clientX, tc.clientY);
+          placeSpot(dragTouch.which, dragTouch.i, tc.clientX, tc.clientY);
         }
         if (kind === 'end') { dragTouch = null; saveSettings(); syncSettingsUI(); }
       }
@@ -1163,10 +1225,11 @@
   el.cheat.addEventListener('change', () => { settings.cheat = el.cheat.checked; changed(); });
   el.mirror.addEventListener('change', () => {
     settings.mirror = el.mirror.checked;
-    if (!settings.mirror) settings.lose = { u: 1 - settings.win.u, v: settings.win.v };
+    if (!settings.mirror) settings.lose = mirrorOf(winSpot());
     changed();
   });
-  el.radius.addEventListener('input', () => { settings.radius = clamp(Number(el.radius.value) || 45, 20, 90); changed(); });
+  el.radius.addEventListener('input', () => { settings.radius = clamp(Number(el.radius.value) || 45, 20, 120); changed(); });
+  el.spots.addEventListener('input', () => { settings.spots = clamp(Number(el.spots.value) || 3, 1, DEFAULTS.wins.length); changed(); });
   el.hint.addEventListener('change', () => { settings.hint = el.hint.checked; changed(); });
   el.show.addEventListener('change', () => { settings.showSpots = el.show.checked; changed(); });
   el.sound.addEventListener('change', () => {
@@ -1183,6 +1246,7 @@
   el.reset.addEventListener('click', () => {
     const keep = { dock: settings.dock, mode: settings.mode, winners: settings.winners, groups: settings.groups };
     settings = sanitize(keep);
+    saveStep(0);
     audio.applySession();
     changed();
   });
