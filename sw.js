@@ -2,7 +2,7 @@
 // Strategy: stale-while-revalidate — answer instantly from the cache (works with
 // no signal) and refresh the cached copy in the background, so a new version is
 // picked up on the next launch. Bump VERSION to force a clean re-cache.
-const VERSION = 'chooser-v5'; // bump on every deploy so installed apps pick up the update
+const VERSION = 'chooser-v6'; // bump on every deploy so installed apps pick up the update
 const FILES = [
   './',
   './index.html',

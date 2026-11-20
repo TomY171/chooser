@@ -392,7 +392,7 @@
 
   const audio = (() => {
     const AC = window.AudioContext || window.webkitAudioContext;
-    let ac = null, master = null, recovering = false, warmed = null;
+    let ac = null, master = null, recovering = false, warmed = null, everRan = false;
 
     function applySession() {
       // 'playback' = also plays when the phone is on silent (pauses music apps); 'ambient' = obeys the switch.
@@ -418,12 +418,16 @@
       master.gain.value = 0.77;
       master.connect(comp);
       comp.connect(ac.destination);
-      ac.onstatechange = warm;
+      ac.onstatechange = () => {
+        if (ac && ac.state === 'running') everRan = true;
+        warm();
+        kick(); // hide the speaker glyph
+      };
       return ac;
     }
     // Call synchronously inside activation events (a quick tap's touchend, click). Safe to call often.
     function unlock() {
-      if (MUTED) return;
+      if (MUTED || !settings.sound) return; // sound off: never start a session that pauses music
       if (!ac || ac.state === 'closed') make();
       if (!ac || ac.state === 'running') return;
       try { ac.resume().catch(() => {}); } catch (_) { /* ignore */ }
@@ -452,7 +456,9 @@
       unlock,
       applySession,
       suspend() { if (ac && ac.state === 'running') ac.suspend().catch(() => {}); },
-      resume() { if (ac && ac.state !== 'closed' && ac.state !== 'running') ac.resume().catch(() => {}); },
+      resume() { if (settings.sound && ac && ac.state !== 'closed' && ac.state !== 'running') ac.resume().catch(() => {}); },
+      running: () => !!ac && ac.state === 'running',
+      everRan: () => everRan,
       fingerDown(i) { if (ready()) try { SFX.sfxFingerDown(ac, master, i, at()); } catch (_) { /* ignore */ } },
       countdown() {
         if (!ready()) return null;
@@ -482,6 +488,8 @@
   // ---------------------------------------------------------------------------
   const fingers = new Map(); // touch id -> finger (includes ones shrinking away)
   const ignored = new Set(); // touch ids ignored until they lift
+  const onGlass = new Map(); // every touch on the screen right now: id -> { x, y }
+  const lateTouches = new Set(); // touches that started while a result was showing
   let phase = 'gather';      // gather | sweep | picked | ending
   let lastChange = 0, sweepStart = 0, pickTime = 0, floodAt = Infinity;
   let endStart = 0, endFlooded = false, endHole = HOLE_R;
@@ -677,6 +685,7 @@
 
   function resetRound(t) {
     fingers.clear();
+    lateTouches.clear();
     winner = null;
     roundKind = 'flood';
     phase = 'gather';
@@ -689,7 +698,14 @@
   // still on the glass are ignored until they lift and touch again.
   function abortRound(t) {
     for (const id of fingers.keys()) ignored.add(id);
+    for (const id of onGlass.keys()) ignored.add(id);
     resetRound(t);
+  }
+
+  // When a round ends, everyone still touching the screen plays in the next round, so a finger
+  // that stays on the win spot (or a tap-to-play-again finger that stays down) is not left out.
+  function joinHeldTouches(t) {
+    for (const [id, pos] of onGlass) if (!ignored.has(id) && !fingers.has(id)) addFinger(id, pos.x, pos.y, t);
   }
 
   function farCorner(x, y) {
@@ -704,9 +720,13 @@
     } else if (phase === 'sweep') {
       if (t - sweepStart >= T.sweep + T.pickDelay) pick(t);
     } else if (phase === 'picked') {
-      if (roundKind !== 'flood' && fingers.size === 0) resetRound(t); // all dots cleared by a tap
+      if (roundKind !== 'flood' && fingers.size === 0) { resetRound(t); joinHeldTouches(t); } // dots cleared by a tap
+      else if (t - pickTime >= T_MIN_RESULT) {
+        // A finger put down during the first second of the result and still held ends it too.
+        for (const id of lateTouches) if (onGlass.has(id)) { endRound(t); break; }
+      }
     } else if (phase === 'ending') {
-      if (t - endStart >= T.liftShrink + (endFlooded ? T.expand : 0)) resetRound(t);
+      if (t - endStart >= T.liftShrink + (endFlooded ? T.expand : 0)) { resetRound(t); joinHeldTouches(t); }
     }
   }
 
@@ -813,6 +833,26 @@
     ctx.restore();
   }
 
+  // iPhones only allow sound after a quick tap (holding a finger does not count), so until then a
+  // small grey "muted speaker" sits in the middle of the idle screen; any quick tap removes it.
+  function drawSpeaker() {
+    const x = W / 2, y = H / 2;
+    ctx.save();
+    ctx.fillStyle = '#3c3c3c';
+    ctx.strokeStyle = '#3c3c3c';
+    ctx.lineWidth = 2.5;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x - 16, y - 5); ctx.lineTo(x - 10, y - 5); ctx.lineTo(x - 2, y - 12);
+    ctx.lineTo(x - 2, y + 12); ctx.lineTo(x - 10, y + 5); ctx.lineTo(x - 16, y + 5);
+    ctx.closePath(); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(x + 5, y - 5); ctx.lineTo(x + 14, y + 4);
+    ctx.moveTo(x + 14, y - 5); ctx.lineTo(x + 5, y + 4);
+    ctx.stroke();
+    ctx.restore();
+  }
+
   function drawHintDot() {
     const p = spotPx('win');
     ctx.fillStyle = '#1b1b1b';
@@ -833,6 +873,7 @@
     } else if (settings.hint && settings.cheat && phase !== 'picked' && phase !== 'ending') {
       drawHintDot();
     }
+    if (!settingsOpen && settings.sound && phase === 'gather' && fingers.size === 0 && !audio.running()) drawSpeaker();
     if (settingsOpen && dragTouch) {
       ctx.save();
       ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 1;
@@ -856,7 +897,7 @@
     draw(t);
     const idle = isIdle();
     if (idle !== wasIdle) { wasIdle = idle; document.body.classList.toggle('playing', !idle); } // hides the mode button
-    if (reloadWhenIdle && idle) { location.reload(); return; }
+    if (reloadWhenIdle && idle && onGlass.size === 0 && !audio.everRan()) { location.reload(); return; }
     if (fingers.size > 0 || phase !== 'gather') kick();
   }
 
@@ -886,27 +927,35 @@
   // ---------------------------------------------------------------------------
   // Touch input.
   // ---------------------------------------------------------------------------
+  function trackGlass(list) {
+    onGlass.clear();
+    for (let i = 0; i < list.length; i++) onGlass.set(list[i].identifier, { x: list[i].clientX, y: list[i].clientY });
+  }
+
   function syncWithTouchList(list, t) {
     // iOS does not always send touchend/touchcancel; anything we track that is no longer on the
     // glass is lifted, so a "ghost" finger can never win.
-    const live = new Set();
-    for (let i = 0; i < list.length; i++) live.add(list[i].identifier);
+    trackGlass(list);
+    const live = onGlass;
     for (const f of [...fingers.values()]) if (!f.gone && !f.lifted && !live.has(f.id)) liftFinger(f.id, t);
+    for (const id of [...lateTouches]) if (!live.has(id)) lateTouches.delete(id);
     for (const id of [...ignored]) if (!live.has(id)) ignored.delete(id);
     for (const id of [...tapStarts.keys()]) if (!live.has(id)) tapStarts.delete(id);
   }
 
   function onTouchStart(e) {
     e.preventDefault();
-    if (settingsOpen) { settingsTouch(e, 'start'); return; }
+    if (settingsOpen) { trackGlass(e.touches); settingsTouch(e, 'start'); return; }
     const t = clock();
     syncWithTouchList(e.touches, t);
     for (const tc of e.changedTouches) {
       cornerTapStart(tc);
       const id = tc.identifier;
-      if (phase === 'picked' || phase === 'ending' || ignored.has(id)) {
-        if (phase === 'picked' && !ignored.has(id) && t - pickTime >= T_MIN_RESULT) endRound(t); // "tap to play again"
-        ignored.add(id);
+      if (ignored.has(id)) continue;
+      if (phase === 'picked' || phase === 'ending') {
+        // "Tap to play again": a new touch ends the result; if it stays down it plays next round.
+        lateTouches.add(id);
+        if (phase === 'picked' && t - pickTime >= T_MIN_RESULT) endRound(t);
         continue;
       }
       if (fingers.has(id)) fingers.delete(id); // stale entry with a reused id
@@ -917,7 +966,7 @@
 
   function onTouchMove(e) {
     e.preventDefault();
-    if (settingsOpen) { settingsTouch(e, 'move'); return; }
+    if (settingsOpen) { trackGlass(e.touches); settingsTouch(e, 'move'); return; }
     for (const tc of e.changedTouches) {
       const f = fingers.get(tc.identifier);
       if (f && !f.gone && !f.lifted) { f.x = tc.clientX; f.y = tc.clientY; }
@@ -929,11 +978,12 @@
   function onTouchEnd(e) {
     e.preventDefault();
     if (e.type === 'touchend') { audio.unlock(); requestWakeLock(); } // a quick tap unlocks sound
-    if (settingsOpen) { settingsTouch(e, 'end'); return; }
+    if (settingsOpen) { trackGlass(e.touches); settingsTouch(e, 'end'); return; }
     const t = clock();
     for (const tc of e.changedTouches) {
       if (e.type === 'touchend') cornerTapEnd(tc); else tapStarts.delete(tc.identifier);
       ignored.delete(tc.identifier);
+      lateTouches.delete(tc.identifier);
       liftFinger(tc.identifier, t);
     }
     syncWithTouchList(e.touches, t);
@@ -973,7 +1023,7 @@
   // ---------------------------------------------------------------------------
   const $ = (id) => document.getElementById(id);
   const el = {
-    root: $('settings'), dock: $('s-dock'), cheat: $('s-cheat'), mirror: $('s-mirror'),
+    root: $('settings'), sheet: document.querySelector('#settings .sheet'), dock: $('s-dock'), cheat: $('s-cheat'), mirror: $('s-mirror'),
     radius: $('s-radius'), radiusOut: $('s-radius-out'),
     hint: $('s-hint'), show: $('s-show'), sound: $('s-sound'), silent: $('s-silent'), test: $('s-test'),
     solo: $('s-solo'), reset: $('s-reset'), close: $('s-close'),
@@ -981,9 +1031,13 @@
   let settingsOpen = false;
   let settingsOpenedAt = 0;
   let dragTouch = null; // { id, which, x, y }
+  let dockFlip = false;  // the ⇅ button swaps the automatic dock side
 
   function syncSettingsUI() {
-    el.root.className = settings.dock;
+    const sp = spotPx('win');
+    const top = (sp.y > H / 2) !== dockFlip;
+    el.root.className = top ? 'top' : 'bottom';
+    el.sheet.style.maxHeight = Math.round(Math.max(170, (top ? sp.y : H - sp.y) - settings.radius - 70)) + 'px';
     el.root.hidden = !settingsOpen;
     el.cheat.checked = settings.cheat;
     el.mirror.checked = settings.mirror;
@@ -1004,6 +1058,7 @@
     ignored.clear();
     settingsOpen = true;
     settingsOpenedAt = realNow();
+    dockFlip = false;
     dragTouch = null;
     syncSettingsUI();
     kick();
@@ -1014,6 +1069,7 @@
     saveSettings();
     syncSettingsUI();
     resetRound(clock());
+    for (const id of onGlass.keys()) ignored.add(id);
     kick();
   }
 
@@ -1028,6 +1084,7 @@
     if (kind === 'start') {
       // Only a touch that starts on a spot moves it, so extra taps (like a 6th tap on the corner)
       // or stray touches never move a spot.
+      if (dragTouch && !onGlass.has(dragTouch.id)) dragTouch = null; // its touch was taken by the system
       if (dragTouch || realNow() - settingsOpenedAt < 0.6) return;
       const tc = e.changedTouches[0];
       const x = tc.clientX, y = tc.clientY, R = Math.max(settings.radius, 30) + 30;
@@ -1046,13 +1103,13 @@
           dragTouch.x = tc.clientX; dragTouch.y = tc.clientY;
           placeSpot(dragTouch.which, tc.clientX, tc.clientY);
         }
-        if (kind === 'end') { dragTouch = null; saveSettings(); }
+        if (kind === 'end') { dragTouch = null; saveSettings(); syncSettingsUI(); }
       }
     }
     kick();
   }
 
-  el.dock.addEventListener('click', () => { settings.dock = settings.dock === 'top' ? 'bottom' : 'top'; changed(); });
+  el.dock.addEventListener('click', () => { dockFlip = !dockFlip; syncSettingsUI(); kick(); });
   el.cheat.addEventListener('change', () => { settings.cheat = el.cheat.checked; changed(); });
   el.mirror.addEventListener('change', () => {
     settings.mirror = el.mirror.checked;
@@ -1062,7 +1119,11 @@
   el.radius.addEventListener('input', () => { settings.radius = clamp(Number(el.radius.value) || 45, 20, 90); changed(); });
   el.hint.addEventListener('change', () => { settings.hint = el.hint.checked; changed(); });
   el.show.addEventListener('change', () => { settings.showSpots = el.show.checked; changed(); });
-  el.sound.addEventListener('change', () => { settings.sound = el.sound.checked; changed(); });
+  el.sound.addEventListener('change', () => {
+    settings.sound = el.sound.checked;
+    changed();
+    if (settings.sound) audio.unlock(); else audio.suspend();
+  });
   el.silent.addEventListener('change', () => { settings.silentPlay = el.silent.checked; audio.applySession(); changed(); });
   el.test.addEventListener('click', () => {
     audio.unlock();
@@ -1142,6 +1203,7 @@
 
   document.addEventListener('visibilitychange', () => {
     tapStarts.clear();
+    dragTouch = null;
     if (document.hidden) {
       // Touches can be lost while hidden: drop the round and release the audio session.
       if (!settingsOpen) abortRound(clock());
@@ -1154,8 +1216,8 @@
     }
     kick();
   });
-  window.addEventListener('pagehide', () => { if (!settingsOpen) abortRound(clock()); });
-  window.addEventListener('blur', () => { if (!settingsOpen && !isIdle()) { abortRound(clock()); kick(); } });
+  window.addEventListener('pagehide', () => { dragTouch = null; if (!settingsOpen) abortRound(clock()); });
+  window.addEventListener('blur', () => { dragTouch = null; if (!settingsOpen && !isIdle()) { abortRound(clock()); kick(); } });
 
   function onRotate() {
     // Positions jump when the screen rotates: drop the round, then re-measure (iOS can report
@@ -1179,10 +1241,11 @@
       window.addEventListener('load', () => {
         navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((r) => { swReg = r; }).catch(() => {});
       });
-      // A new version took over: reload, but never in the middle of a round.
+      // A new version took over. Reload only before any sound has played and with nobody touching
+      // (a reload loses the unlocked sound); otherwise the new version starts on the next launch.
       navigator.serviceWorker.addEventListener('controllerchange', () => {
-        if (!hadController) return; // first install, nothing to reload
-        if (isIdle()) location.reload(); else { reloadWhenIdle = true; kick(); }
+        if (!hadController || audio.everRan()) return;
+        if (isIdle() && onGlass.size === 0) location.reload(); else { reloadWhenIdle = true; kick(); }
       });
     }
   }
